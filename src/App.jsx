@@ -1,123 +1,242 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { useGoogleLogin } from '@react-oauth/google';
 import {
-  Plane, RefreshCw, AlertTriangle, Archive, ArchiveRestore,
-  X, ChevronRight, Ticket, LogOut
+  RefreshCw, Archive, ArchiveRestore, X, ChevronRight, 
+  LogOut, Briefcase, Mail, CheckCircle, Clock, AlertCircle,
+  MapPin, CalendarDays
 } from 'lucide-react';
 
+//const API_BASE = "http://localhost:8000";
 const API_BASE = "https://placement-backend-2m5h.onrender.com";
-const CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+function relativeTime(iso) {
+  if (!iso) return '—';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
 
 // ==========================================
-// GLOBAL BOARD STYLES
+// COMPANY LOGOS & DOMAIN MAPPING
 // ==========================================
-function BoardStyles() {
+const COMPANY_DOMAINS = {
+  'jpmorganchase': 'jpmorganchase.com',
+  'jp morgan chase': 'jpmorganchase.com',
+  'jpmorgan': 'jpmorganchase.com',
+  'jp morgan': 'jpmorganchase.com',
+  'bosch global software': 'bosch.com',
+  'bosch': 'bosch.com',
+  'aveva': 'aveva.com',
+  'bnp paribas': 'group.bnpparibas',
+  'google': 'google.com',
+  'microsoft': 'microsoft.com',
+  'amazon': 'amazon.com',
+  'apple': 'apple.com',
+  'meta': 'meta.com',
+  'nvidia': 'nvidia.com',
+  'oracle': 'oracle.com',
+  'adobe': 'adobe.com',
+  'ibm': 'ibm.com',
+  'intel': 'intel.com',
+  'netflix': 'netflix.com',
+  'samsung': 'samsung.com',
+  'accenture': 'accenture.com',
+  'deloitte': 'deloitte.com',
+  'infosys': 'infosys.com',
+  'tcs': 'tcs.com',
+  'tata consultancy services': 'tcs.com',
+  'wipro': 'wipro.com',
+  'cognizant': 'cognizant.com',
+  'zoho': 'zoho.com',
+  'paypal': 'paypal.com',
+  'visa': 'visa.com',
+  'mastercard': 'mastercard.com',
+  'uber': 'uber.com',
+  'flipkart': 'flipkart.com',
+  'walmart': 'walmart.com',
+  'goldman sachs': 'goldmansachs.com',
+  'morgan stanley': 'morganstanley.com',
+  'ey': 'ey.com',
+  'pwc': 'pwc.com',
+};
+
+function normalizeCompany(company) {
+  return (company || '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function getCompanyDomain(company) {
+  const normalized = normalizeCompany(company);
+
+  if (COMPANY_DOMAINS[normalized]) {
+    return COMPANY_DOMAINS[normalized];
+  }
+
+  const match = Object.keys(COMPANY_DOMAINS).find(key =>
+    normalized.includes(key) || key.includes(normalized)
+  );
+
+  if (match) {
+    return COMPANY_DOMAINS[match];
+  }
+
+  const guessed = normalized
+    .replace(/\b(inc|ltd|llc|pvt|private|limited|technologies|technology|corp|corporation|solutions|systems|software|india)\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
+
+  return guessed ? `${guessed}.com` : null;
+}
+
+const LOGO_GRADIENTS = [
+  'linear-gradient(135deg,#2563eb,#4f46e5)',
+  'linear-gradient(135deg,#059669,#10b981)',
+  'linear-gradient(135deg,#db2777,#e11d48)',
+  'linear-gradient(135deg,#ea580c,#f59e0b)',
+  'linear-gradient(135deg,#7c3aed,#4f46e5)',
+  'linear-gradient(135deg,#0284c7,#06b6d4)',
+];
+
+function companyInitials(name) {
+  if (!name) return '?';
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+function getGradient(name) {
+  let hash = 0;
+  for (let i = 0; i < (name || '').length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return LOGO_GRADIENTS[Math.abs(hash) % LOGO_GRADIENTS.length];
+}
+
+function CompanyLogo({ company, size = 64 }) {
+  const [logoFailed, setLogoFailed] = useState(false);
+  const domain = getCompanyDomain(company);
+  const logoUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=128` : null;
+
+  if (!logoUrl || logoFailed) {
+    return (
+      <div
+        className="flex items-center justify-center text-white font-bold shrink-0"
+        style={{
+          width: size,
+          height: size,
+          borderRadius: Math.max(14, size * 0.25),
+          background: getGradient(company),
+          fontSize: size * 0.32,
+          boxShadow: '0 8px 20px rgba(0,0,0,0.10)'
+        }}
+      >
+        {companyInitials(company)}
+      </div>
+    );
+  }
+
   return (
-    <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap');
-      .font-flap { font-family: 'Space Mono', monospace; }
-      .font-body { font-family: 'Inter', sans-serif; }
-      @keyframes stampIn {
-        0% { transform: scale(2.4) rotate(-9deg); opacity: 0; }
-        55% { transform: scale(0.92) rotate(-9deg); opacity: 1; }
-        100% { transform: scale(1) rotate(-9deg); opacity: 1; }
-      }
-      .stamp { animation: stampIn 0.35s ease-out; }
-      @media (prefers-reduced-motion: reduce) {
-        .stamp { animation: none; }
-      }
-      .ticket-perf {
-        background-image: radial-gradient(circle, #0A0908 3px, transparent 3px);
-        background-size: 14px 14px;
-        background-position: center;
-      }
-      .barcode {
-        background-image: repeating-linear-gradient(90deg, #EDE7DA 0px, #EDE7DA 2px, transparent 2px, transparent 4px, #EDE7DA 4px, #EDE7DA 5px, transparent 5px, transparent 9px, #EDE7DA 9px, #EDE7DA 10px, transparent 10px, transparent 13px);
-      }
-    `}</style>
+    <div
+      className="flex items-center justify-center shrink-0 bg-white border border-gray-100 shadow-sm overflow-hidden"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: Math.max(14, size * 0.25)
+      }}
+    >
+      <img
+        src={logoUrl}
+        alt={`${company} logo`}
+        className="w-[65%] h-[65%] object-contain"
+        onError={() => setLogoFailed(true)}
+      />
+    </div>
   );
 }
 
-function useReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setReduced(mq.matches);
-    const handler = () => setReduced(mq.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-  return reduced;
+// ==========================================
+// DATE FORMATTER
+// ==========================================
+function formatEventDate(value) {
+  if (!value) return 'Date TBD';
+  const raw = String(value).trim();
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    const date = new Date(Number(year), Number(month) - 1, Number(day));
+    return new Intl.DateTimeFormat('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    }).format(date);
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return new Intl.DateTimeFormat('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    }).format(parsed);
+  }
+  return raw;
 }
 
-function useClock() {
-  const [time, setTime] = useState(new Date());
-  useEffect(() => {
-    const id = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  return time;
+// ==========================================
+// STATUS HELPERS
+// ==========================================
+function getStatus(ev) {
+  if (ev.action_required) {
+    return { label: 'Action Required', dot: 'bg-red-500', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-100' };
+  }
+  if (ev.is_user_shortlisted) {
+    return { label: 'Shortlisted', dot: 'bg-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-100' };
+  }
+  return { label: 'In Review', dot: 'bg-amber-400', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-100' };
 }
 
-function scramble(str) {
-  return str.split('').map(c => (c === ' ' ? ' ' : CHARSET[Math.floor(Math.random() * CHARSET.length)])).join('');
-}
-
-function Flap({ text, flipKey, delay = 0, className = '' }) {
-  const reduced = useReducedMotion();
-  const [display, setDisplay] = useState(text);
-  useEffect(() => {
-    if (reduced) { setDisplay(text); return; }
-    let frame = 0;
-    const frames = 5;
-    let interval;
-    const start = setTimeout(() => {
-      interval = setInterval(() => {
-        frame++;
-        if (frame >= frames) {
-          setDisplay(text);
-          clearInterval(interval);
-        } else {
-          setDisplay(scramble(text));
-        }
-      }, 55);
-    }, delay);
-    return () => { clearTimeout(start); clearInterval(interval); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flipKey, text]);
-  return <span className={className}>{display}</span>;
-}
-
+// ==========================================
+// APP COMPONENT
+// ==========================================
 export default function App() {
   const [userConfig, setUserConfig] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // FIXED: Using standard browser localStorage
   useEffect(() => {
     try {
       const result = localStorage.getItem('user-config');
       if (result) setUserConfig(JSON.parse(result));
-    } catch (e) { /* no saved passenger yet */ }
+    } catch (e) {}
     setLoading(false);
   }, []);
 
   const handleLogin = (config) => {
     setUserConfig(config);
     try { localStorage.setItem('user-config', JSON.stringify(config)); }
-    catch (e) { console.error('Could not save passenger details', e); }
+    catch (e) {}
   };
 
   const handleLogout = () => {
     setUserConfig(null);
     try { localStorage.removeItem('user-config'); }
-    catch (e) { /* nothing to clear */ }
+    catch (e) {}
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#0A0908] flex items-center justify-center">
-        <BoardStyles />
-        <span className="font-flap text-[11px] tracking-[0.3em] text-[#8A8478] uppercase animate-pulse">Loading board…</span>
+      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center">
+        <div className="flex items-center gap-2 text-gray-500 font-medium text-sm">
+          <RefreshCw className="w-4 h-4 animate-spin" /> Loading workspace...
+        </div>
       </div>
     );
   }
@@ -127,123 +246,100 @@ export default function App() {
 }
 
 // ==========================================
-// CHECK-IN (login)
+// SIGN IN
 // ==========================================
 function SetupScreen({ onComplete }) {
-  const [formData, setFormData] = useState({ name: "Ayush Acharya", regNumber: "23BPS1078" });
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onComplete(formData);
-  };
+  const login = useGoogleLogin({
+    flow: 'auth-code',
+    scope: 'https://www.googleapis.com/auth/gmail.readonly',
+    onSuccess: async (codeResponse) => {
+      setIsAuthenticating(true);
+      try {
+        const res = await axios.post(`${API_BASE}/auth/google`, { code: codeResponse.code });
+        onComplete(res.data.user);
+      } catch (error) {
+        console.error("Login failed:", error);
+        alert("Authentication failed. Please check your credentials.");
+        setIsAuthenticating(false);
+      }
+    },
+    onError: (error) => console.log('Login Failed:', error)
+  });
 
   return (
-    <div className="min-h-screen bg-[#0A0908] font-body flex items-center justify-center p-6">
-      <BoardStyles />
-      <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2.5 mb-8 justify-center">
-          <Ticket className="w-4 h-4 text-[#FFB627]" />
-          <span className="font-flap text-[10px] tracking-[0.3em] text-[#8A8478] uppercase">Placement Board · Check-in</span>
+    <div className="min-h-screen bg-[#F8F9FA] font-sans flex items-center justify-center p-6">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
+        <div className="flex justify-center mb-6">
+          <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center border border-blue-100">
+            <Mail className="w-6 h-6 text-blue-600" />
+          </div>
         </div>
-        <div className="relative bg-[#14120F] border border-[#2B2620] rounded-sm p-8">
-          <div className="absolute top-0 left-0 right-0 h-[3px] bg-[#FFB627]"></div>
-          <h1 className="font-flap text-2xl text-[#EDE7DA] tracking-wide mb-1">BOARDING PASS</h1>
-          <p className="text-xs text-[#8A8478] mb-8 font-body">Enter your details to open the board.</p>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label className="block font-flap text-[10px] text-[#8A8478] uppercase tracking-[0.2em] mb-2">Passenger</label>
-              <input
-                required
-                value={formData.name}
-                onChange={e => setFormData({ ...formData, name: e.target.value })}
-                className="w-full bg-transparent border-b border-[#2B2620] pb-2 text-[#EDE7DA] text-sm font-body outline-none focus-visible:border-[#FFB627] transition-colors"
-              />
-            </div>
-            <div>
-              <label className="block font-flap text-[10px] text-[#8A8478] uppercase tracking-[0.2em] mb-2">Reg. Number</label>
-              <input
-                required
-                value={formData.regNumber}
-                onChange={e => setFormData({ ...formData, regNumber: e.target.value })}
-                className="w-full bg-transparent border-b border-[#2B2620] pb-2 text-[#EDE7DA] text-sm font-flap tracking-wider outline-none focus-visible:border-[#FFB627] transition-colors"
-              />
-            </div>
-            <button
-              type="submit"
-              className="w-full mt-4 bg-[#FFB627] hover:bg-[#FFC658] text-[#0A0908] font-flap font-bold text-sm py-3 rounded-sm tracking-widest uppercase transition-colors flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-[#FFB627] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0A0908]"
-            >
-              Open board <ChevronRight className="w-4 h-4" />
-            </button>
-          </form>
-        </div>
+        
+        <h1 className="text-2xl font-bold text-gray-900 text-center mb-2 tracking-tight">Placement OS</h1>
+        <p className="text-sm text-gray-500 text-center mb-8">
+          Sync your inbox to automatically track your upcoming tests and interviews.
+        </p>
+
+        <button
+          onClick={() => login()}
+          disabled={isAuthenticating}
+          className="w-full bg-white hover:bg-gray-50 text-gray-800 border border-gray-200 font-semibold text-sm py-3 rounded-xl transition-all active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          {isAuthenticating ? "Authenticating..." : "Continue with Google"}
+        </button>
       </div>
     </div>
   );
 }
 
 // ==========================================
-// STATUS HELPERS
-// ==========================================
-function statusOf(ev) {
-  if (ev.action_required) return { label: 'DELAYED', color: '#FF5C5C' };
-  if (ev.is_user_shortlisted) return { label: 'ON BOARD', color: '#4ADE80' };
-  return { label: 'BOARDING', color: '#FFB627' };
-}
-
-// ==========================================
-// THE BOARD (dashboard)
+// BOARD
 // ==========================================
 function Board({ config, onLogout }) {
-  const clock = useClock();
   const [events, setEvents] = useState([]);
   const [syncing, setSyncing] = useState(false);
   const [activeNav, setActiveNav] = useState('overview');
-  const [selectedCompany, setSelectedCompany] = useState('All');
   const [openEvent, setOpenEvent] = useState(null);
-  const [lastSyncedTime, setLastSyncedTime] = useState(clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-  const [flipKey, setFlipKey] = useState(0);
-
+  const [lastSyncedAt, setLastSyncedAt] = useState(new Date().toISOString());
   const [archivedIds, setArchivedIds] = useState([]);
   const archiveLoaded = useRef(false);
 
-  // FIXED: Using standard browser localStorage
   useEffect(() => {
     try {
       const result = localStorage.getItem('archived-ids');
       if (result) setArchivedIds(JSON.parse(result));
-    } catch (e) { /* nothing archived yet */ }
+    } catch (e) {}
     archiveLoaded.current = true;
   }, []);
 
   useEffect(() => {
     if (!archiveLoaded.current) return;
-    try {
-      localStorage.setItem('archived-ids', JSON.stringify(archivedIds));
-    } catch (e) {
-      console.error('Could not save archive state', e);
-    }
+    try { localStorage.setItem('archived-ids', JSON.stringify(archivedIds)); }
+    catch (e) {}
   }, [archivedIds]);
-
-  const toggleArchive = (id) => {
-    setArchivedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-    setOpenEvent(null);
-  };
 
   const fetchEvents = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/events/`);
+      const res = await axios.get(`${API_BASE}/events/?user_id=${config.id}`);
       setEvents(res.data.events || []);
-      setFlipKey(k => k + 1);
-    } catch (error) { console.error("Board fetch failed"); }
+    } catch (error) {}
   };
 
   const handleSync = async () => {
     setSyncing(true);
     try {
-      await axios.post(`${API_BASE}/events/sync`);
+      await axios.post(`${API_BASE}/events/sync?user_id=${config.id}`);
       await fetchEvents();
-      setLastSyncedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    } catch (e) { console.error("Sync failed."); }
+      setLastSyncedAt(new Date().toISOString());
+    } catch (e) {}
     setSyncing(false);
   };
 
@@ -251,89 +347,65 @@ function Board({ config, onLogout }) {
     fetchEvents();
     const syncInterval = setInterval(handleSync, 30 * 60 * 1000);
     return () => clearInterval(syncInterval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const activeEvents = events.filter(e => !archivedIds.includes(e.id));
   const archivedEvents = events.filter(e => archivedIds.includes(e.id));
 
-  const totalExtracted = events.length;
-  const shortlistedCount = activeEvents.filter(e => e.is_user_shortlisted).length;
-  const pendingCount = activeEvents.filter(e => !e.is_user_shortlisted).length;
-  const actionCount = activeEvents.filter(e => e.action_required).length;
-
-  const uniqueCompanies = ['All', ...new Set(events.map(ev => ev.company_name).filter(Boolean))];
-
   let baseList = activeNav === 'archived' ? archivedEvents : activeEvents;
   if (activeNav === 'pending') baseList = baseList.filter(e => !e.is_user_shortlisted);
   if (activeNav === 'shortlisted') baseList = baseList.filter(e => e.is_user_shortlisted);
 
-  const filteredEvents = baseList.filter(ev => selectedCompany === 'All' || ev.company_name === selectedCompany);
-
   const navTabs = [
-    { key: 'overview', label: 'ALL FLIGHTS' },
-    { key: 'pending', label: `PENDING (${pendingCount})` },
-    { key: 'shortlisted', label: `ON BOARD (${shortlistedCount})` },
-    { key: 'archived', label: `ARCHIVE (${archivedEvents.length})` },
+    { key: 'overview', label: 'All Roles' },
+    { key: 'pending', label: 'In Review' },
+    { key: 'shortlisted', label: 'Shortlisted' },
+    { key: 'archived', label: 'Archived' },
   ];
 
   return (
-    <div className="min-h-screen bg-[#0A0908] font-body selection:bg-[#FFB627]/30">
-      <BoardStyles />
+    <div className="min-h-screen bg-[#F8F9FA] font-sans text-gray-900 pb-20">
+      <header className="pt-8 pb-6">
+        <div className="max-w-[1400px] mx-auto px-6 lg:px-12 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-200 flex items-center justify-center">
+              <Briefcase className="w-5 h-5 text-gray-900" />
+            </div>
+            <span className="font-bold text-xl tracking-tight text-gray-900">Placement OS</span>
+          </div>
 
-      {/* TOP BAR */}
-      <header className="border-b border-[#2B2620] px-6 md:px-10 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Plane className="w-4 h-4 text-[#FFB627] -rotate-45" />
-          <div>
-            <h1 className="font-flap text-sm text-[#EDE7DA] tracking-[0.15em]">PLACEMENT BOARD</h1>
-            <p className="text-[10px] font-flap text-[#8A8478] tracking-[0.2em] uppercase mt-0.5">VIT Chennai · Terminal 1</p>
+          <div className="flex items-center gap-4">
+            <span className="hidden md:inline text-xs text-gray-400 font-medium">
+              Synced {relativeTime(lastSyncedAt)}
+            </span>
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-2 bg-white shadow-sm border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-full text-sm font-semibold disabled:opacity-50 transition-transform active:scale-95"
+            >
+              <RefreshCw className={`w-4 h-4 text-gray-500 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing...' : 'Sync'}
+            </button>
+            <button
+              onClick={onLogout}
+              className="w-10 h-10 bg-white rounded-full shadow-sm border border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-transform active:scale-95"
+            >
+              <LogOut className="w-4 h-4 text-gray-500" />
+            </button>
           </div>
         </div>
-        <button
-          onClick={onLogout}
-          className="hidden sm:flex items-center gap-2 text-[11px] font-flap text-[#8A8478] hover:text-[#EDE7DA] uppercase tracking-widest transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#FFB627] px-2 py-1"
-        >
-          {config.name} <LogOut className="w-3.5 h-3.5" />
-        </button>
       </header>
 
-      {/* SYNC BAR */}
-      <div className="px-6 md:px-10 py-4 flex items-center justify-between border-b border-[#2B2620] flex-wrap gap-3">
-        <div className="font-flap text-2xl text-[#FFB627] tracking-widest tabular-nums">
-          {clock.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-[10px] font-flap text-[#8A8478] uppercase tracking-widest">Last sync {lastSyncedTime}</span>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center gap-2 border border-[#FFB627] text-[#FFB627] hover:bg-[#FFB627] hover:text-[#0A0908] px-4 py-2 rounded-sm text-[11px] font-flap font-bold uppercase tracking-widest disabled:opacity-40 transition-colors focus-visible:ring-2 focus-visible:ring-[#FFB627] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0A0908]"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing' : 'Sync inbox'}
-          </button>
-        </div>
-      </div>
-
-      <div className="max-w-[1100px] mx-auto px-6 md:px-10 py-8">
-
-        {/* STAT READOUTS */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-[#2B2620] border border-[#2B2620] mb-8">
-          <StatBlock label="Total" value={totalExtracted} flipKey={flipKey} />
-          <StatBlock label="On board" value={shortlistedCount} flipKey={flipKey} color="#4ADE80" />
-          <StatBlock label="Boarding" value={pendingCount} flipKey={flipKey} color="#FFB627" />
-          <StatBlock label="Delayed" value={actionCount} flipKey={flipKey} color="#FF5C5C" />
-        </div>
-
-        {/* NAV TABS */}
-        <div className="flex items-center gap-6 border-b border-[#2B2620] mb-5 overflow-x-auto [&::-webkit-scrollbar]:hidden">
+      <main className="max-w-[1400px] mx-auto px-6 lg:px-12">
+        <div className="flex items-center gap-2 mb-8 overflow-x-auto [&::-webkit-scrollbar]:hidden pb-2">
           {navTabs.map(t => (
             <button
               key={t.key}
               onClick={() => setActiveNav(t.key)}
-              className={`font-flap text-[11px] tracking-widest uppercase pb-3 whitespace-nowrap border-b-2 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#FFB627] ${
-                activeNav === t.key ? 'text-[#FFB627] border-[#FFB627]' : 'text-[#8A8478] border-transparent hover:text-[#EDE7DA]'
+              className={`whitespace-nowrap px-5 py-2.5 rounded-full text-sm font-semibold transition-colors flex-shrink-0 ${
+                activeNav === t.key
+                  ? 'bg-gray-900 text-white shadow-md'
+                  : 'bg-white text-gray-500 hover:text-gray-900 shadow-sm border border-gray-200'
               }`}
             >
               {t.label}
@@ -341,121 +413,130 @@ function Board({ config, onLogout }) {
           ))}
         </div>
 
-        {/* COMPANY FILTER */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 mb-6 [&::-webkit-scrollbar]:hidden">
-          {uniqueCompanies.map(c => (
-            <button
-              key={c}
-              onClick={() => setSelectedCompany(c)}
-              className={`px-3 py-1.5 rounded-full text-[10px] font-flap font-bold uppercase tracking-wider whitespace-nowrap border transition-colors flex-shrink-0 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#FFB627] ${
-                selectedCompany === c
-                  ? 'border-[#FFB627] text-[#FFB627] bg-[#FFB627]/10'
-                  : 'border-[#2B2620] text-[#8A8478] hover:text-[#EDE7DA] hover:border-[#4A443A]'
-              }`}
-            >
-              {c === 'All' ? 'All companies' : c}
-            </button>
-          ))}
-        </div>
-
-        {/* BOARD HEADER (desktop) */}
-        {filteredEvents.length > 0 && (
-          <div className="hidden md:grid grid-cols-[2fr_130px_100px_90px_1.4fr_24px] gap-4 px-4 pb-2 border-b border-[#2B2620] font-flap text-[10px] text-[#8A8478] uppercase tracking-widest">
-            <span>Company</span>
-            <span>Status</span>
-            <span>Date</span>
-            <span>Time</span>
-            <span>Venue</span>
-            <span></span>
+        {baseList.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {baseList.map((ev) => (
+              <EventCard key={ev.id} ev={ev} onOpen={() => setOpenEvent(ev)} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-20 px-4 bg-white rounded-3xl shadow-sm border border-gray-100">
+            <Mail className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+            <h3 className="text-base font-bold text-gray-900">No events found</h3>
+            <p className="mt-1 text-sm text-gray-500">Sync your inbox or adjust your filters.</p>
           </div>
         )}
+      </main>
 
-        {/* ROWS */}
-        <div>
-          {filteredEvents.map((ev, idx) => (
-            <EventRow key={ev.id} ev={ev} idx={idx} flipKey={flipKey} onOpen={() => setOpenEvent(ev)} />
-          ))}
-        </div>
-
-        {filteredEvents.length === 0 && (
-          <div className="py-20 flex flex-col items-center justify-center border border-dashed border-[#2B2620] rounded-sm">
-            <Ticket className="w-6 h-6 text-[#2B2620] mb-3" />
-            <p className="text-[#EDE7DA] font-flap text-sm uppercase tracking-widest">No flights on board</p>
-            <p className="text-[#8A8478] text-[10px] font-flap mt-1 uppercase tracking-widest">Queue empty</p>
-          </div>
-        )}
-      </div>
-
-      <BoardingPassDrawer
+      <DetailPanel
         ev={openEvent}
         isArchived={openEvent ? archivedIds.includes(openEvent.id) : false}
         onClose={() => setOpenEvent(null)}
-        onArchive={() => toggleArchive(openEvent.id)}
+        onArchive={() => {
+          setArchivedIds(prev => prev.includes(openEvent.id) ? prev.filter(x => x !== openEvent.id) : [...prev, openEvent.id]);
+          setOpenEvent(null);
+        }}
       />
     </div>
   );
 }
 
 // ==========================================
-// STAT BLOCK — digital readout tile
+// EVENT CARD
 // ==========================================
-function StatBlock({ label, value, flipKey, color = '#EDE7DA' }) {
+function EventCard({ ev, onOpen }) {
+  const status = getStatus(ev);
+
   return (
-    <div className="bg-[#0A0908] px-4 py-4">
-      <div className="font-flap text-3xl tabular-nums" style={{ color }}>
-        <Flap text={String(value).padStart(2, '0')} flipKey={flipKey} />
+    <div
+      onClick={onOpen}
+      className="group cursor-pointer bg-white border border-gray-200 rounded-[24px] overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-gray-300 hover:shadow-[0_16px_40px_rgba(15,23,42,0.09)]"
+    >
+      {/* CARD HEADER */}
+      <div className="p-6">
+        <div className="flex items-start justify-between gap-4">
+          <CompanyLogo company={ev.company_name} size={64} />
+
+          <span
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap ${status.bg} ${status.text} ${status.border} border`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
+            {status.label}
+          </span>
+        </div>
+
+        {/* COMPANY */}
+        <div className="mt-5">
+          <h3 className="text-[21px] font-bold text-gray-900 tracking-tight leading-[1.2] break-words">
+            {ev.company_name || 'Unknown Company'}
+          </h3>
+          <p className="mt-1.5 text-sm font-medium text-gray-400">
+            {ev.event_type || 'Placement Update'}
+          </p>
+        </div>
       </div>
-      <div className="text-[10px] font-flap text-[#8A8478] uppercase tracking-widest mt-1">{label}</div>
+
+      {/* EVENT INFORMATION */}
+      <div className="mx-5 mb-5 rounded-2xl bg-[#F8F9FB] border border-gray-100">
+        {/* DATE + TIME */}
+        <div className="grid grid-cols-2 divide-x divide-gray-200">
+          <div className="px-4 py-4 min-w-0">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <CalendarDays className="w-3.5 h-3.5 text-gray-400" />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                Date
+              </span>
+            </div>
+            {/* NO truncate */}
+            <p className="text-sm font-semibold text-gray-900 whitespace-nowrap">
+              {formatEventDate(ev.date)}
+            </p>
+          </div>
+
+          <div className="px-4 py-4 min-w-0">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Clock className="w-3.5 h-3.5 text-gray-400" />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                Time
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-gray-900 whitespace-nowrap">
+              {ev.time || 'Time TBD'}
+            </p>
+          </div>
+        </div>
+
+        {/* VENUE */}
+        <div className="px-4 py-3.5 border-t border-gray-200 flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
+            <MapPin className="w-3.5 h-3.5 text-gray-400" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              Venue
+            </p>
+            <p className="text-xs font-semibold text-gray-700 mt-0.5 truncate">
+              {ev.venue || 'Venue TBD'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* FOOTER */}
+      <div className="px-5 pb-5">
+        <div className="h-11 rounded-xl bg-gray-50 group-hover:bg-gray-900 flex items-center justify-center gap-2 text-sm font-semibold text-gray-700 group-hover:text-white transition-all">
+          View details
+          <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+        </div>
+      </div>
     </div>
   );
 }
 
 // ==========================================
-// EVENT ROW — desktop grid row / mobile stacked card
+// DETAIL PANEL
 // ==========================================
-function EventRow({ ev, idx, flipKey, onOpen }) {
-  const status = statusOf(ev);
-  const delay = Math.min(idx * 50, 400);
-
-  return (
-    <button
-      onClick={onOpen}
-      className="w-full text-left border-b border-[#1B1815] hover:bg-[#14120F] transition-colors focus-visible:bg-[#14120F] focus-visible:outline-none group"
-    >
-      {/* Desktop row */}
-      <div className="hidden md:grid grid-cols-[2fr_130px_100px_90px_1.4fr_24px] gap-4 px-4 py-3.5 items-center">
-        <span className="font-flap font-bold text-[#EDE7DA] text-sm truncate">
-          <Flap text={(ev.company_name || 'UNKNOWN').toUpperCase()} flipKey={flipKey} delay={delay} />
-        </span>
-        <span className="font-flap text-[10px] font-bold uppercase tracking-widest" style={{ color: status.color }}>
-          {status.label}
-        </span>
-        <span className="font-flap text-xs text-[#8A8478]">{ev.date || 'TBD'}</span>
-        <span className="font-flap text-xs text-[#8A8478]">{ev.time || 'TBD'}</span>
-        <span className="text-xs text-[#8A8478] truncate font-body">{ev.venue || 'TBD'}</span>
-        <ChevronRight className="w-3.5 h-3.5 text-[#4A443A] group-hover:text-[#FFB627] transition-colors" />
-      </div>
-
-      {/* Mobile card */}
-      <div className="md:hidden px-4 py-3.5 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="font-flap font-bold text-[#EDE7DA] text-sm truncate">
-            <Flap text={(ev.company_name || 'UNKNOWN').toUpperCase()} flipKey={flipKey} delay={delay} />
-          </div>
-          <div className="text-[11px] text-[#8A8478] font-body mt-0.5">{ev.date || 'TBD'} · {ev.venue || 'TBD'}</div>
-        </div>
-        <span className="font-flap text-[10px] font-bold uppercase tracking-widest flex-shrink-0" style={{ color: status.color }}>
-          {status.label}
-        </span>
-      </div>
-    </button>
-  );
-}
-
-// ==========================================
-// BOARDING PASS DRAWER — the detail view
-// ==========================================
-function BoardingPassDrawer({ ev, onClose, onArchive, isArchived }) {
+function DetailPanel({ ev, onClose, onArchive, isArchived }) {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -469,94 +550,100 @@ function BoardingPassDrawer({ ev, onClose, onArchive, isArchived }) {
   if (!ev) return null;
 
   let points = [];
-  try { points = JSON.parse(ev.email_summary_points || '[]'); } catch (e) { /* noop */ }
+  try { points = JSON.parse(ev.email_summary_points || '[]'); } catch (e) {}
 
-  const status = statusOf(ev);
+  const status = getStatus(ev);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end font-body">
-      <div
-        className={`absolute inset-0 bg-black/70 transition-opacity duration-300 ${show ? 'opacity-100' : 'opacity-0'}`}
-        onClick={onClose}
-      ></div>
+    <div className="fixed inset-0 z-50 overflow-hidden">
+      <div 
+        className={`absolute inset-0 bg-gray-900/20 backdrop-blur-sm transition-opacity duration-300 ${show ? 'opacity-100' : 'opacity-0'}`} 
+        onClick={onClose} 
+      />
+      
+      <div className="absolute inset-y-0 right-0 max-w-[480px] w-full flex sm:p-4">
+        <div className={`h-full w-full bg-white sm:rounded-3xl shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out ${show ? 'translate-x-0' : 'translate-x-[120%]'}`}>
+          
+          <div className="relative pt-8 px-8 pb-6 flex-shrink-0 border-b border-gray-100">
+            <button 
+              onClick={onClose}
+              className="absolute top-4 right-4 w-10 h-10 bg-gray-50 hover:bg-gray-100 rounded-full flex items-center justify-center text-gray-500 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            
+            <CompanyLogo company={ev.company_name} size={64} className="mb-5 shadow-md" />
+            
+            <div className="flex items-center gap-2 mb-3">
+               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${status.bg} ${status.text}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`}></span>
+                {status.label}
+              </span>
+              <span className="text-sm font-semibold text-gray-400">|</span>
+              <span className="text-sm font-semibold text-gray-500">{ev.event_type || 'Update'}</span>
+            </div>
+            
+            <h2 className="text-3xl font-bold text-gray-900 leading-tight">
+              {ev.company_name || 'Unknown'}
+            </h2>
+          </div>
 
-      <div className={`relative w-full max-w-sm h-full bg-[#14120F] border-l border-[#2B2620] flex flex-col transition-transform duration-300 ease-out ${show ? 'translate-x-0' : 'translate-x-full'}`}>
-
-        {/* Stub header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4">
-          <span className="font-flap text-[10px] text-[#8A8478] uppercase tracking-[0.25em]">Boarding pass</span>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center text-[#8A8478] hover:text-[#EDE7DA] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#FFB627]"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-6 relative">
-          <div className="relative">
-            {ev.action_required && (
-              <div key={ev.id} className="stamp absolute -top-1 right-0 border-2 border-[#FF5C5C] text-[#FF5C5C] font-flap text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-sm rotate-[-9deg]">
-                Delayed
+          <div className="flex-1 overflow-y-auto p-8 pt-6">
+            <div className="grid grid-cols-2 gap-y-8 gap-x-4 mb-10 bg-gray-50 rounded-2xl p-6 border border-gray-100">
+              <div>
+                <dt className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5"/> Date</dt>
+                <dd className="text-[15px] font-bold text-gray-900">{formatEventDate(ev.date)}</dd>
               </div>
-            )}
-            <h2 className="font-flap text-3xl text-[#EDE7DA] tracking-wide mb-1 pr-20 break-words">{ev.company_name || 'Unknown'}</h2>
-            <p className="text-xs font-flap uppercase tracking-widest mb-6" style={{ color: status.color }}>{status.label} · {ev.event_type || 'Other'}</p>
+              <div>
+                <dt className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Clock className="w-3.5 h-3.5"/> Time</dt>
+                <dd className="text-[15px] font-bold text-gray-900">{ev.time || 'TBD'}</dd>
+              </div>
+              <div className="col-span-2">
+                <dt className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5"/> Venue</dt>
+                <dd className="text-[15px] font-bold text-gray-900">{ev.venue || 'TBD'}</dd>
+              </div>
+            </div>
+
+            <div className="mb-8">
+              <h4 className="text-[13px] font-bold text-gray-900 mb-4">Extracted Notes</h4>
+              {points.length > 0 ? (
+                <ul className="space-y-4">
+                  {points.map((p, i) => (
+                    <li key={i} className="flex gap-3 text-[14px] text-gray-600 leading-relaxed bg-white border border-gray-100 shadow-sm rounded-xl p-4">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0 mt-2"></span>
+                      <span>{p}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No specific action items found.</p>
+              )}
+            </div>
+            
+            <div className={`${status.bg} border ${status.text.replace('text', 'border')} border-opacity-20 rounded-xl p-4 flex gap-3`}>
+               <AlertCircle className={`w-5 h-5 flex-shrink-0 ${status.text}`} />
+               <p className={`text-sm font-semibold ${status.text}`}>{ev.shortlist_status_reason || 'Pending update'}</p>
+            </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <PassField label="Date" value={ev.date || 'TBD'} />
-            <PassField label="Time" value={ev.time || 'TBD'} />
-            <PassField label="Venue" value={ev.venue || 'TBD'} />
+          <div className="p-6 border-t border-gray-100">
+            <button
+              onClick={onArchive}
+              className={`w-full flex justify-center items-center gap-2 py-4 rounded-xl text-sm font-bold transition-all active:scale-[0.98] ${
+                isArchived
+                  ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-900 text-white hover:bg-black shadow-[0_4px_14px_0_rgb(0,0,0,0.2)]'
+              }`}
+            >
+              {isArchived ? (
+                <><ArchiveRestore className="w-4 h-4" /> Restore to board</>
+              ) : (
+                <><Archive className="w-4 h-4" /> Move to Archive</>
+              )}
+            </button>
           </div>
-
-          {/* Perforation */}
-          <div className="h-4 -mx-6 ticket-perf mb-6"></div>
-
-          <h4 className="font-flap text-[10px] font-bold text-[#8A8478] uppercase tracking-[0.2em] mb-3">Flight notes</h4>
-          {points.length > 0 ? (
-            <ul className="space-y-3 mb-6">
-              {points.map((p, i) => (
-                <li key={i} className="text-[13px] text-[#D9D3C6] flex items-start gap-3 leading-relaxed">
-                  <span className="text-[#FFB627] mt-0.5 flex-shrink-0 font-flap text-[10px]">{String(i + 1).padStart(2, '0')}</span>
-                  <span>{p}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-[13px] text-[#8A8478] italic border border-dashed border-[#2B2620] rounded-sm p-4 mb-6">No notes parsed from this email.</p>
-          )}
-
-          <div className="flex items-center gap-3 border border-[#2B2620] rounded-sm px-4 py-3 mb-6">
-            <span className="font-flap text-[9px] font-bold text-[#8A8478] uppercase tracking-wider">Status</span>
-            <span className="w-[1px] h-3 bg-[#2B2620]"></span>
-            <span className="text-[12px] text-[#D9D3C6]">{ev.shortlist_status_reason || 'Awaiting update'}</span>
-          </div>
-        </div>
-
-        <div className="p-6 pt-4">
-          <div className="barcode h-6 mb-4 opacity-60"></div>
-          <button
-            onClick={onArchive}
-            className={`w-full flex items-center justify-center gap-2 py-3 rounded-sm text-sm font-flap font-bold uppercase tracking-widest transition-colors focus-visible:ring-2 focus-visible:ring-[#FFB627] focus-visible:ring-offset-2 focus-visible:ring-offset-[#14120F] ${
-              isArchived
-                ? 'border border-[#2B2620] text-[#EDE7DA] hover:border-[#4A443A]'
-                : 'bg-[#FFB627] text-[#0A0908] hover:bg-[#FFC658]'
-            }`}
-          >
-            {isArchived ? <><ArchiveRestore className="w-4 h-4" /> Restore to board</> : <><Archive className="w-4 h-4" /> File to archive</>}
-          </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function PassField({ label, value }) {
-  return (
-    <div>
-      <p className="font-flap text-[9px] font-bold text-[#8A8478] uppercase tracking-widest mb-1">{label}</p>
-      <p className="font-flap text-sm text-[#EDE7DA] truncate">{value}</p>
     </div>
   );
 }
